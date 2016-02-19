@@ -11,12 +11,12 @@ defmodule AES.Bmp do
   defp bmp_parse(<< header :: binary-size(26), body :: binary >>) do
     {:ok, file} = File.open "encode_test.bmp", [:write]
     IO.binwrite file, header
-    binary_block(body, file)
+    block_parse(body, file)
   end
 
   defp add_round_key(block) do
     << key :: size(128) >> = "luisfernando1234"
-    xor = bxor(block, key)
+    bxor(block, key)
   end
 
   defp to_aes_matrix(block) do
@@ -63,7 +63,7 @@ defmodule AES.Bmp do
       :erlang.list_to_binary(matrix_shifted)
   end
 
-  defp binary_block(<< block :: size(128), rest :: binary >>, file) do
+  defp block_parse(<< block :: size(128), rest :: binary >>, file) do
     number = add_round_key(block)
     block_hex = :erlang.integer_to_binary(number, 16)
 
@@ -72,20 +72,20 @@ defmodule AES.Bmp do
         block_hex = concat_zero_multiple_time(block_hex, n)
         IO.inspect block_hex
     end
-    {ok, block_byte} = Base.decode16(block_hex)
+    {:ok, block_byte} = Base.decode16(block_hex)
 
     block_cript = block_byte |> block_byte_to_list |> sub_bytes |> shift_row
 
     IO.binwrite file, block_cript
-    binary_block(rest, file)
+    block_parse(rest, file)
   end
 
-  defp binary_block(<< _, rest :: binary >>, file) do
+  defp block_parse(<< _, rest :: binary >>, file) do
     IO.binwrite file, rest
     File.close file
   end
 
-  defp binary_block(_, file) do
+  defp block_parse(_, file) do
     File.close file
   end
 end
