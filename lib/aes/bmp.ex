@@ -50,7 +50,8 @@ defmodule AES.Bmp do
     matrix_multiplicated = Enum.map(matrix,
       fn(c) -> Matrix.mult([c], @constant_matrix) end)
     mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
-    matrix_256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end ) end )
+    matrix_256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
+                            end )
     :erlang.list_to_binary(matrix_256)
   end
 
@@ -59,25 +60,24 @@ defmodule AES.Bmp do
       Enum.at(Sbox.sbox, position) end)
   end
 
+  defp shift([row | rest], offset) do
+    l_index = Enum.with_index(row)
+    l_shifted = for {elem, index} <- l_index, do: {elem, rem(index + offset, 4)}
+    l_index_sorted = Enum.map(l_shifted, fn(t) -> {e, i} = t;
+                                if(i < 0, do: i = i + 4); {e, i} end)
+    l_sorted = List.keysort(l_index_sorted, 1)
+    l = Enum.map(l_sorted, fn(t) -> {e, i} = t; e end)
+    l ++ shift(rest, offset - 1)
+  end
+
+  defp shift([], offset) do
+    []
+  end
+
   defp shift_row(list) do
     matrix = to_aes_matrix(list)
-    [r0 | t] = matrix
-    [r1 | t ] = t
-      [a | rest] = r1
-      l = [a]
-      r1 = rest ++ l
-    [r2 | t ] = t
-      [a, b | rest] = r2
-      l = [a, b]
-      r2 = rest ++ l
-    [r3 | t ] = t
-      [a, b, c | rest] = r3
-      l = [a, b, c]
-      r3 = rest ++ l
-
-      matrix_shifted = r0 ++ r1 ++ r2 ++ r3
-      matrix_shifted
-      #:erlang.list_to_binary(matrix_shifted)
+    shift(matrix, 0)
+    #:erlang.list_to_binary(matrix_shifted)
   end
 
   defp block_parse(<< block :: size(128), rest :: binary >>, file) do
