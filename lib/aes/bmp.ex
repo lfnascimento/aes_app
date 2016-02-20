@@ -1,5 +1,14 @@
 defmodule AES.Bmp do
   use Bitwise
+  @constant_matrix [[2, 3, 1, 1],
+        [1, 2, 3, 1],
+        [1, 1, 2, 3],
+        [3, 1, 1, 2]
+      ]
+
+  @small_key %{:key_size => 128, :rounds => 10}
+  @medium_key %{:key_size => 192, :rounds => 12}
+  @large_key %{:key_size => 256, :rounds => 14}
 
   def encode_image(file_name) do
     case File.read(file_name) do
@@ -37,12 +46,12 @@ defmodule AES.Bmp do
     for <<b :: binary-size(1) <-  block >>, do: b
   end
 
-  defp mix_columns(block) do
-    ma = Enum.chunk(block, 4)
-    mc = [[2, 3, 1, 1], [1, 2, 3, 1], [1, 1, 2, 3], [3, 1, 1, 2]]
-    Enum.map(ma, fn(c) -> Matrix.mult(mc, c) end)
-    IO.inspect ma
-    :erlang.list_to_binary(ma)
+  defp mix_columns(matrix) do
+    matrix_multiplicated = Enum.map(matrix,
+      fn(c) -> Matrix.mult([c], @constant_matrix) end)
+    mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
+    matrix_256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end ) end )
+    :erlang.list_to_binary(matrix_256)
   end
 
   defp sub_bytes(block) do
