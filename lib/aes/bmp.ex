@@ -37,13 +37,21 @@ defmodule AES.Bmp do
     for <<b :: binary-size(1) <-  block >>, do: b
   end
 
-  defp sub_bytes(block) do
-    Enum.map(block, fn(e) -> << position :: size(8) >> = e; Enum.at(Sbox.sbox, position) end)
+  defp mix_columns(block) do
+    ma = Enum.chunk(block, 4)
+    mc = [[2, 3, 1, 1], [1, 2, 3, 1], [1, 1, 2, 3], [3, 1, 1, 2]]
+    Enum.map(ma, fn(c) -> Matrix.mult(mc, c) end)
+    IO.inspect ma
+    :erlang.list_to_binary(ma)
   end
 
-  defp shift_row(block) do
-    matrix = to_aes_matrix(block)
+  defp sub_bytes(block) do
+    Enum.map(block, fn(e) -> << position :: size(8) >> = e;
+      Enum.at(Sbox.sbox, position) end)
+  end
 
+  defp shift_row(list) do
+    matrix = to_aes_matrix(list)
     [r0 | t] = matrix
     [r1 | t ] = t
       [a | rest] = r1
@@ -59,22 +67,25 @@ defmodule AES.Bmp do
       r3 = rest ++ l
 
       matrix_shifted = r0 ++ r1 ++ r2 ++ r3
-
-      :erlang.list_to_binary(matrix_shifted)
+      matrix_shifted
+      #:erlang.list_to_binary(matrix_shifted)
   end
 
   defp block_parse(<< block :: size(128), rest :: binary >>, file) do
     number = add_round_key(block)
     block_hex = :erlang.integer_to_binary(number, 16)
 
-    if byte_size(block_hex) < 32 do
-        n = 32 - byte_size(block_hex)
+    block_length = byte_size(block_hex)
+    if block_length < 32 do
+        n = 32 - block_length
         block_hex = concat_zero_multiple_time(block_hex, n)
         IO.inspect block_hex
     end
+
     {:ok, block_byte} = Base.decode16(block_hex)
 
-    block_cript = block_byte |> block_byte_to_list |> sub_bytes |> shift_row
+    block_cript = block_byte |> block_byte_to_list |> sub_bytes |> shift_row |>
+      to_aes_matrix |> mix_columns
 
     IO.binwrite file, block_cript
     block_parse(rest, file)
