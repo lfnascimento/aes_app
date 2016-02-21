@@ -23,9 +23,9 @@ defmodule AES.Bmp do
     block_parse(body, file)
   end
 
-  defp add_round_key(block) do
+  defp add_round_key(number) do
     << key :: size(128) >> = "luisfernando1234"
-    bxor(block, key)
+    bxor(number, key)
   end
 
   defp to_aes_matrix(block) do
@@ -66,37 +66,59 @@ defmodule AES.Bmp do
     l_index_sorted = Enum.map(l_shifted, fn(t) -> {e, i} = t;
                                 if(i < 0, do: i = i + 4); {e, i} end)
     l_sorted = List.keysort(l_index_sorted, 1)
-    l = Enum.map(l_sorted, fn(t) -> {e, i} = t; e end)
+    l = Enum.map(l_sorted, fn(t) -> {e, _i} = t; e end)
     l ++ shift(rest, offset - 1)
   end
 
-  defp shift([], offset) do
+  defp shift([], _offset) do
     []
   end
 
-  defp shift_row(list) do
-    matrix = to_aes_matrix(list)
+  defp shift_row(matrix) do
     shift(matrix, 0)
     #:erlang.list_to_binary(matrix_shifted)
   end
 
-  defp block_parse(<< block :: size(128), rest :: binary >>, file) do
-    number = add_round_key(block)
-    block_hex = :erlang.integer_to_binary(number, 16)
+  defp bin_to_integer(<< number :: size(128) >>) do
+    number
+  end
+
+  defp integer_to_bin(integer) do
+    block_hex = :erlang.integer_to_binary(integer, 16)
 
     block_length = byte_size(block_hex)
     if block_length < 32 do
         n = 32 - block_length
         block_hex = concat_zero_multiple_time(block_hex, n)
-        IO.inspect block_hex
     end
 
     {:ok, block_byte} = Base.decode16(block_hex)
+    block_byte
+  end
 
-    block_cript = block_byte |> block_byte_to_list |> sub_bytes |> shift_row |>
-      to_aes_matrix |> mix_columns
+  defp initial_round(bin_number) do
+    add_round_key(bin_number)
+  end
 
-    IO.binwrite file, block_cript
+  defp round(bin_number, r) when r > 0 do
+    bin_number_encode = bin_number |> integer_to_bin
+      |> block_byte_to_list |> sub_bytes |> to_aes_matrix |> shift_row
+        |> to_aes_matrix |> mix_columns |> bin_to_integer |> add_round_key
+
+    round(bin_number_encode, r - 1)
+  end
+
+  defp round(bin_number, 0) do
+    bin_number
+  end
+
+  defp block_parse(<< bin_number :: size(128), rest :: binary >>, file) do
+
+    initial_block_encode = bin_number |> initial_round
+    number_encode = round(initial_block_encode, 10)
+    block_encode = integer_to_bin(number_encode)
+
+    IO.binwrite file, block_encode
     block_parse(rest, file)
   end
 
