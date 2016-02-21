@@ -46,14 +46,18 @@ defmodule AES.Bmp do
     for <<b :: binary-size(1) <-  block >>, do: b
   end
 
+  defp list_to_bin(list) do
+    :erlang.list_to_binary(list)
+  end
+
   defp mix_columns(matrix) do
     matrix_multiplicated = Enum.map(matrix,
       fn(c) -> Matrix.mult([c], @constant_matrix) end)
     mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
-    matrix_256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
+    Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
                             end )
-    :erlang.list_to_binary(matrix_256)
   end
+
 
   defp sub_bytes(block) do
     Enum.map(block, fn(e) -> << position :: size(8) >> = e;
@@ -100,16 +104,19 @@ defmodule AES.Bmp do
     add_round_key(bin_number)
   end
 
-  defp round(bin_number, r) when r > 0 do
+  defp round(bin_number, r) when r > 1 do
     bin_number_encode = bin_number |> integer_to_bin
       |> block_byte_to_list |> sub_bytes |> to_aes_matrix |> shift_row
-        |> to_aes_matrix |> mix_columns |> bin_to_integer |> add_round_key
+        |> to_aes_matrix |> mix_columns |> list_to_bin |> bin_to_integer
+          |> add_round_key
 
     round(bin_number_encode, r - 1)
   end
 
-  defp round(bin_number, 0) do
-    bin_number
+  defp round(final_bin_number, 1) do
+    final_bin_number |> integer_to_bin
+      |> block_byte_to_list |> sub_bytes |> to_aes_matrix |> shift_row
+        |> list_to_bin |> bin_to_integer |> add_round_key
   end
 
   defp block_parse(<< bin_number :: size(128), rest :: binary >>, file) do
