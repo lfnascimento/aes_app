@@ -43,13 +43,23 @@ defmodule AES.Bmp do
   end
 
   defp add_round_key(number) do
-    << key :: size(128) >> = "luisfernando1234"
+    #<< key :: size(128) >> = "luisfernando1234"
+    << key :: size(128) >> = "0123456789abcdef"
     bxor(number, key)
   end
 
   defp to_aes_matrix(list) do
     matrix = Enum.chunk(list, 4)
     #Matrix.transpose(matrix)
+  end
+
+  defp list_to_aes_matrix(list) do
+    Enum.chunk(list, 4)
+  end
+
+  defp to_aes_matrix_trs(list) do
+    matrix = Enum.chunk(list, 4)
+    Matrix.transpose(matrix)
   end
 
   defp matrix_flatten(matrix) do
@@ -73,9 +83,9 @@ defmodule AES.Bmp do
     :erlang.list_to_binary(list)
   end
 
-  defp mix_columns(matrix) do
-    IO.inspect matrix
-    matrix_multiplicated = Enum.map(matrix,
+  def mix_columns(matrix) do
+    mt = Matrix.transpose(matrix)
+    matrix_multiplicated = Enum.map(mt,
       fn(c) -> Matrix.mult([c], @constant_matrix) end)
     mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
     m256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
@@ -83,7 +93,7 @@ defmodule AES.Bmp do
     m256
   end
 
-  defp sub_bytes(bin_list) do
+  def sub_bytes(bin_list) do
     int_list = bin_list_to_integer_list(bin_list)
     Enum.map(int_list, fn(position) -> Enum.at(Sbox.sbox, position) end)
   end
@@ -106,9 +116,10 @@ defmodule AES.Bmp do
     []
   end
 
-  defp shift_row(matrix) do
+  def shift_row(matrix) do
     #IO.inspect matrix
-    shift(matrix, 0)
+    list_shifted = shift(matrix, 0)
+    list_to_aes_matrix(list_shifted)
     #:erlang.list_to_binary(matrix_shifted)
   end
 
@@ -129,7 +140,7 @@ defmodule AES.Bmp do
     block_byte
   end
 
-  defp initial_round(bin_number) do
+  def initial_round(bin_number) do
     add_round_key(bin_number)
   end
 
