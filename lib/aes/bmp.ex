@@ -12,10 +12,6 @@ defmodule AES.Bmp do
                    [11, 13, 9, 14]
                   ]
 
-  @small_key %{:key_size => 128, :rounds => 10}
-  @medium_key %{:key_size => 192, :rounds => 12}
-  @large_key %{:key_size => 256, :rounds => 14}
-
   def encode_image(file_name) do
     case File.read(file_name) do
       {:ok, binary} -> bmp_parse(binary)
@@ -33,7 +29,7 @@ defmodule AES.Bmp do
   defp bmp_parse(<< header :: binary-size(26), body :: binary >>) do
     {:ok, file} = File.open "encode_test.bmp", [:write]
     IO.binwrite file, header
-    block_parse(body, file)
+    block_encode(body, file)
   end
 
   defp bmp_parse_decode(<< header :: binary-size(26), body :: binary >>) do
@@ -50,20 +46,20 @@ defmodule AES.Bmp do
 
   defp to_aes_matrix(list) do
     matrix = Enum.chunk(list, 4)
-    #Matrix.transpose(matrix)
-  end
-
-  defp list_to_aes_matrix(list) do
-    Enum.chunk(list, 4)
-  end
-
-  defp to_aes_matrix_trs(list) do
-    matrix = Enum.chunk(list, 4)
     Matrix.transpose(matrix)
+  end
+
+  defp to_matrix(list) do
+    matrix = Enum.chunk(list, 4)
   end
 
   defp matrix_flatten(matrix) do
     List.flatten(matrix)
+  end
+
+  defp list_to_aes_matrix(list) do
+    Enum.chunk(list, 4)
+    matrix = Enum.chunk(list, 4)
   end
 
   defp concat_zero_multiple_time(binary_block, n) when n <= 0 do
@@ -75,8 +71,12 @@ defmodule AES.Bmp do
     concat_zero_multiple_time(binary_block, n - 1 )
   end
 
-  defp block_byte_to_list (block) do
+  defp block_byte_to_list(block) do
     for <<b :: binary-size(1) <-  block >>, do: b
+  end
+
+  def block_byte_to_number_list(block) do
+    for <<b :: 8 <-  block >>, do: b
   end
 
   defp list_to_bin(list) do
@@ -88,39 +88,43 @@ defmodule AES.Bmp do
     matrix_multiplicated = Enum.map(mt,
       fn(c) -> Matrix.mult([c], @constant_matrix) end)
     mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
-    m256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
+    Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
                             end )
-    m256
   end
 
-  def sub_bytes(bin_list) do
-    int_list = bin_list_to_integer_list(bin_list)
-    Enum.map(int_list, fn(position) -> Enum.at(Sbox.sbox, position) end)
+  def sub(matrix, sbox) do
+    number_list = List.flatten(matrix)
+    list_sub_bytes = Enum.map(number_list, fn(position)
+                                              -> Enum.at(sbox, position) end)
+    list_to_aes_matrix(list_sub_bytes)
+  end
+
+  def sub_bytes(matrix) do
+    sub(matrix, Sbox.sbox)
   end
 
   defp bin_list_to_integer_list(bin_list) do
     Enum.map(bin_list, fn(e) -> << int :: size(8) >> = e; int end)
   end
 
-  defp shift([row | rest], offset) do
+  defp shift([row | rest], offset, side) do
     l_index = Enum.with_index(row)
     l_shifted = for {elem, index} <- l_index, do: {elem, rem(index + offset, 4)}
     l_index_sorted = Enum.map(l_shifted, fn(t) -> {e, i} = t;
                                 if(i < 0, do: i = i + 4); {e, i} end)
     l_sorted = List.keysort(l_index_sorted, 1)
     l = Enum.map(l_sorted, fn(t) -> {e, _i} = t; e end)
-    l ++ shift(rest, offset - 1)
+    l ++ shift(rest, offset + (1 * side), side)
   end
 
-  defp shift([], _offset) do
+  defp shift([], _offset, _side) do
     []
   end
 
   def shift_row(matrix) do
-    #IO.inspect matrix
-    list_shifted = shift(matrix, 0)
+    left_side = -1
+    list_shifted = shift(matrix, 0, left_side)
     list_to_aes_matrix(list_shifted)
-    #:erlang.list_to_binary(matrix_shifted)
   end
 
   defp bin_to_integer(<< number :: size(128) >>) do
@@ -144,70 +148,88 @@ defmodule AES.Bmp do
     add_round_key(bin_number)
   end
 
-  defp round(bin_number, r) when r > 1 do
-     bin_number_encode = bin_number |> integer_to_bin
-      |> block_byte_to_list |> sub_bytes |> to_aes_matrix |> shift_row
-      ##  |> to_aes_matrix
-      ##   |> mix_columns
-          |> list_to_bin |> bin_to_integer
-            |> add_round_key
-
-  ###  bin_number_encode = bin_number |> integer_to_bin
-  ###   |> block_byte_to_list |> sub_bytes
-  ###    |> to_aes_matrix |> shift_row
-  ###      |> list_to_bin |> bin_to_integer
-  ###        |> add_round_key
-
-    round(bin_number_encode, r - 1)
+  def bin_number_to_matrix(bin_number) do
+    bin_number
+    |> integer_to_bin
+    |> block_byte_to_number_list
+    |> to_matrix
   end
 
-  defp round(final_bin_number, 1) do
-     final_bin_number |> integer_to_bin
-      |> block_byte_to_list |> sub_bytes |> to_aes_matrix |> shift_row
-        |> list_to_bin |> bin_to_integer |> add_round_key
+  def bin_number_to_aes_matrix(bin_number) do
+    bin_number
+    |> integer_to_bin
+    |> block_byte_to_number_list
+    |> to_aes_matrix
   end
 
-  defp block_parse(<< bin_number :: size(128), rest :: binary >>, file) do
+  def aes_matrix_to_bin_number(matrix) do
+    matrix |> matrix_flatten |> list_to_bin |> bin_to_integer
+  end
 
-    initial_block_encode = bin_number |> initial_round
-    number_encode = round(initial_block_encode, 10)
-    block_encode = integer_to_bin(number_encode)
+  defp integer_to_matrix(number) do
+    number
+    |> integer_to_bin
+    |> block_byte_to_number_list
+    |> to_aes_matrix
+    |> aes_matrix_to_bin_number
+  end
+
+  defp encode_round(bin_number, r) when r > 1 do
+     bin_number_encode = bin_number
+                         |> bin_number_to_matrix
+                         |> sub_bytes
+                         |> shift_row
+                         ##  |> to_aes_matrix
+                         ##   |> mix_columns
+                         |> aes_matrix_to_bin_number
+                         |> add_round_key
+
+      encode_round(bin_number_encode, r - 1)
+  end
+
+  defp encode_round(final_bin_number, 1) do
+     final_bin_number |> bin_number_to_matrix
+                      |> sub_bytes
+                      |> shift_row
+                      |> aes_matrix_to_bin_number
+                      |> add_round_key
+  end
+
+  defp block_encode(<< bin_number :: size(128), rest :: binary >>, file) do
+
+    init_state =  bin_number
+                  |> bin_number_to_aes_matrix
+
+    initial_block_encode = init_state
+                           |> aes_matrix_to_bin_number
+                           |> initial_round
+
+    number_encode = encode_round(initial_block_encode, 10)
+    block_encode = number_encode
+                   |> integer_to_matrix
+                   |> integer_to_bin
 
     IO.binwrite file, block_encode
-    block_parse(rest, file)
+    block_encode(rest, file)
   end
 
-  defp block_parse(<< _, rest :: binary >>, file) do
+  defp block_encode(<< _, rest :: binary >>, file) do
     IO.binwrite file, rest
     File.close file
   end
 
-  defp block_parse(_, file) do
+  defp block_encode(_, file) do
     File.close file
   end
 
-
-  defp inv_shift([row | rest], offset) do
-    l_index = Enum.with_index(row)
-    l_shifted = for {elem, index} <- l_index, do: {elem, rem(index + offset, 4)}
-    l_index_sorted = Enum.map(l_shifted, fn(t) -> {e, i} = t;
-                                if(i < 0, do: i = i + 4); {e, i} end)
-    l_sorted = List.keysort(l_index_sorted, 1)
-    l = Enum.map(l_sorted, fn(t) -> {e, _i} = t; e end)
-    l ++ inv_shift(rest, offset + 1)
+  def inv_shift_row(matrix) do
+    right_side = 1
+    list_inv_sr = shift(matrix, 0, right_side)
+    list_to_aes_matrix(list_inv_sr)
   end
 
-  defp inv_shift([], _offset) do
-    []
-  end
-
-  defp inv_shift_row(matrix) do
-    inv_sr = inv_shift(matrix, 0)
-  end
-
-  defp inv_sub_bytes(bin_list) do
-    int_list = bin_list_to_integer_list(bin_list)
-    Enum.map(int_list, fn(position) -> Enum.at(Sbox.sbox_inv, position) end)
+  def inv_sub_bytes(matrix) do
+    sub(matrix, Sbox.sbox_inv)
   end
 
   defp inv_mix_colums(bin_matrix) do
@@ -219,40 +241,42 @@ defmodule AES.Bmp do
     matrix_multiplicated = Enum.map(int_matrix,
       fn(c) -> Matrix.mult([c], @inv_mxc_matrix) end)
     mf = Enum.map(matrix_multiplicated, fn(e) -> List.flatten(e) end)
-    m256 = Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
+    Enum.map(mf, fn(r) -> Enum.map(r, fn(e) -> rem(e, 256) end )
                             end )
-    IO.inspect m256
-    m256
   end
 
   defp decode_round(bin_number, r) when r > 1 do
-     bin_number_decode = bin_number |> integer_to_bin |> block_byte_to_list
-     |> to_aes_matrix |> inv_shift_row |> inv_sub_bytes |> list_to_bin
-      |> bin_to_integer |> add_round_key |> integer_to_bin |> block_byte_to_list
-      ##  |> to_aes_matrix
-      ##  |> inv_mix_colums
-          |> list_to_bin |> bin_to_integer
-
-  ###      bin_number_decode = bin_number |> integer_to_bin |> block_byte_to_list
-  ###       |> to_aes_matrix |> inv_shift_row |> inv_sub_bytes
-  ###        |> list_to_bin
-  ###          |> bin_to_integer |> add_round_key
+     bin_number_decode = bin_number
+                         |> bin_number_to_matrix
+                         |> inv_shift_row
+                         |> inv_sub_bytes
+                         |> aes_matrix_to_bin_number
+                         |> add_round_key
+                         ##  |> inv_mix_colums
 
       decode_round(bin_number_decode, r - 1)
   end
 
   defp decode_round(bin_number, 1) do
-    bin_number |> integer_to_bin |> block_byte_to_list |> to_aes_matrix
-       |> inv_shift_row |> inv_sub_bytes |> list_to_bin |> bin_to_integer
-        |> add_round_key
+    bin_number |> bin_number_to_matrix
+               |> inv_shift_row
+               |> inv_sub_bytes
+               |> aes_matrix_to_bin_number
+               |> add_round_key
   end
 
   defp block_decode(<< bin_number :: size(128), rest :: binary >>, file) do
 
-    initial_block_decode = bin_number |> initial_round
-    number_decode = decode_round(initial_block_decode, 10)
-    block_decode = integer_to_bin(number_decode)
+    init_state =  bin_number |> bin_number_to_aes_matrix
 
+    initial_block_decode = init_state
+                           |> aes_matrix_to_bin_number
+                           |> initial_round
+
+    number_decode = decode_round(initial_block_decode, 10)
+    block_decode = number_decode
+                   |> integer_to_matrix
+                   |> integer_to_bin
 
     IO.binwrite file, block_decode
     block_decode(rest, file)
